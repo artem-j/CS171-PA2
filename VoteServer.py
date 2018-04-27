@@ -1,4 +1,5 @@
 import socket, threading, time
+import pickle
 from _thread import *
 
 log = []
@@ -25,15 +26,17 @@ def sendUpdate():
     sendSocket.connect((sendIP, sendPort))
     sendSocket.sendall(initMessage.encode())
 
-    #while True:
-        ##Create a message containing log and timetable
-        #time.sleep(3)
-        #sendSocket.sendall(message.encode())
+    while True:
+        package = [log, tt]
+        message = pickle.dumps(package)
+        time.sleep(3)
+        sendSocket.sendall(message)
 
 def recvUpdate():
 
     global serverID
 
+    prevServerID = (serverID - 1) % 3
     serverListener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     serverListener.bind(("127.0.0.1", (8000 + serverID)))
     serverListener.listen(1)
@@ -41,17 +44,40 @@ def recvUpdate():
     connection, address = serverListener.accept()
     data = connection.recv(1024).decode()
 
-    recvID = data.split(":")[1]
+    # recvID = data.split(":")[1]
     # assert recvID == serverID
 
-    #while True:
-        #data = recv(1024).decode()
-        #if not data:
-            #break
-        ##Extract log and timetable from data
-        #voteLock.acquire()
-        ##Update log, dictionary, and time table
-        #voteLock.release()
+    while True:
+        data = connection.recv(1024)
+        if not data:
+            break
+
+        remotePkg = pickle.loads(data)
+        remoteLog = remotePkg[0]
+        remoteTT = remotePkg[1]
+
+        voteLock.acquire()
+
+        for v in remoteLog:
+            if v not in log:
+                time, candidate = v.split(":")
+                votes[candidate] += 1
+                log.append(v)
+
+        for i in range(0,3):
+            for j in range(0,3):
+                if remoteTT[i][j] > tt[i][j]:
+                    tt[i][j] = remoteTT[i][j]
+
+        for k in range(0,3):
+            if remoteTT[prevServerID][k] > tt[serverID][k]:
+                tt[serverID][k] = remoteTT[prevServerID][k]
+
+        #print("Current TT:")
+        #for n in range(0,3):
+        #    print(tt[n])
+
+        voteLock.release()
 
 def Main():
     global log
@@ -75,15 +101,16 @@ def Main():
             voteLock.acquire()
 
             votes[vote] += 1
-            vote = "Vote:" + vote
-            log.append(vote)
             tt[serverID][serverID] += 1
+            vote = str(tt[serverID][serverID]) + ":" + vote
+            log.append(vote)
 
             voteLock.release()
         elif vote == "Q":
             break
         else:
             print("Error: Invalid input.")
+
     printLock.release()
 
 
